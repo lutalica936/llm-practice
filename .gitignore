@@ -1,0 +1,25 @@
+# 环境变量和密钥
+.env
+.env.*
+
+# 保留环境变量示例
+!.env.example
+
+# Python 虚拟环境
+.venv/
+venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# macOS 文件
+.DS_Store
+
+# 编辑器配置
+.vscode/
+.idea/
+
+# 批量处理生成的结果
+output/*
+!output/.gitkeep
