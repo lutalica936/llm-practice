@@ -23,3 +23,6 @@ __pycache__/
 # 批量处理生成的结果
 output/*
 !output/.gitkeep
+
+# 临时模型检查脚本
+check_models.py
