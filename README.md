@@ -90,9 +90,9 @@ python src/hello_llm.py
 
 - [x] Day 1：完成第一次 LLM API 调用
 - [x] Day 2：完成项目结构和环境变量配置
-- [ ] Day 3：System Prompt 与参数实验
-- [ ] Day 4：结构化 JSON 输出
-- [ ] Day 5：异常处理与自动重试
+- [x] Day 3：System Prompt 与参数实验
+- [x] Day 4：结构化 JSON 输出
+- [x] Day 5：异常处理与自动重试
 - [ ] Day 6：批量处理与流式输出
 - [ ] Day 7：项目整理与复盘
 
