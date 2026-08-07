@@ -13,6 +13,8 @@ from openai import (
     BadRequestError,
 )
 
+from llm_client import client
+
 
 # =========================
 # 1. 加载环境变量
@@ -42,14 +44,14 @@ if not model:
     )
 
 
-# =========================
-# 2. 创建 OpenAI Client
-# =========================
+# # =========================
+# # 2. 创建 OpenAI Client
+# # =========================
 
-client = OpenAI(
-    api_key=api_key,
-    base_url=base_url,
-)
+# client = OpenAI(
+#     api_key=api_key,
+#     base_url=base_url,
+# )
 
 
 # =========================

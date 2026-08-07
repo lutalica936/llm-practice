@@ -3,6 +3,8 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from llm_client import client
+
 
 load_dotenv()
 
@@ -20,10 +22,10 @@ if not model:
     raise ValueError("没有读取到 OPENAI_MODEL，请检查 .env 文件")
 
 
-client = OpenAI(
-    api_key=api_key,
-    base_url=base_url,
-)
+# client = OpenAI(
+#     api_key=api_key,
+#     base_url=base_url,
+# )
 
 
 STYLE_PROMPTS = {
