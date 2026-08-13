@@ -11,16 +11,15 @@ from llm_client import request_document_summary
 from schemas import DocumentResult
 
 
-# 项目根目录：
-# /Users/hstsmacbook/Projects/llm-practice
+# 项目根目录
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Prompt 和输出目录
+# Prompt 和默认输出目录
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 
 # 当前版本允许输入的最大字符数。
-# 这里按 Python 的 len() 计算字符，不是按 token 计算。
+# 这里使用 Python 的 len() 计算字符数，不是 token 数。
 MAX_DOCUMENT_CHARS = 12000
 
 # Prompt 版本与文件的对应关系
@@ -49,16 +48,22 @@ def read_text_file(file_path: Path) -> str:
             "当前版本只支持 TXT 文件"
         )
 
-    content = file_path.read_text(
-        encoding="utf-8"
-    ).strip()
+    try:
+        content = file_path.read_text(
+            encoding="utf-8"
+        ).strip()
+
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            "无法按 UTF-8 编码读取文件。"
+            "请把文件转换为 UTF-8 编码后重试"
+        ) from error
 
     if not content:
         raise ValueError(
             "输入文件为空"
         )
 
-    # 在调用模型前检查长度，避免发送过长文档。
     if len(content) > MAX_DOCUMENT_CHARS:
         raise ValueError(
             f"输入文档过长：当前 {len(content)} 个字符，"
@@ -89,9 +94,15 @@ def read_prompt(prompt_version: str) -> str:
             f"提示词路径不是文件：{prompt_file}"
         )
 
-    prompt = prompt_file.read_text(
-        encoding="utf-8"
-    ).strip()
+    try:
+        prompt = prompt_file.read_text(
+            encoding="utf-8"
+        ).strip()
+
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f"无法按 UTF-8 编码读取提示词文件：{prompt_file}"
+        ) from error
 
     if not prompt:
         raise ValueError(
@@ -167,7 +178,7 @@ def summarize_document(
     )
 
     try:
-        # 首先尝试使用 JSON mode
+        # 首先尝试使用 JSON mode。
         raw_text = request_document_summary(
             system_prompt=prompt,
             document=document,
@@ -181,7 +192,7 @@ def summarize_document(
             raise
 
         print(
-            "提示：当前接口可能不支持 JSON mode，"
+            "\n提示：当前接口可能不支持 JSON mode，"
             "正在改用 Prompt 约束方式重试。"
         )
 
@@ -198,18 +209,115 @@ def summarize_document(
     return raw_text, parsed_result
 
 
+def render_json(
+    result: DocumentResult,
+) -> str:
+    """把结构化结果转换为格式化 JSON 文本。"""
+
+    return json.dumps(
+        result.model_dump(),
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
+def render_markdown(
+    result: DocumentResult,
+) -> str:
+    """把结构化结果转换为便于阅读的 Markdown 文本。"""
+
+    lines = [
+        "# 文档结构化结果",
+        "",
+        "## 摘要",
+        "",
+        result.summary,
+        "",
+        "## 行动项",
+        "",
+    ]
+
+    if result.actions:
+        for index, action in enumerate(
+            result.actions,
+            start=1,
+        ):
+            lines.append(
+                f"{index}. {action}"
+            )
+    else:
+        lines.append("无")
+
+    lines.extend([
+        "",
+        "## 待确认问题",
+        "",
+    ])
+
+    if result.questions:
+        for index, question in enumerate(
+            result.questions,
+            start=1,
+        ):
+            lines.append(
+                f"{index}. {question}"
+            )
+    else:
+        lines.append("无")
+
+    return "\n".join(lines) + "\n"
+
+
+def get_expected_suffix(
+    output_format: str,
+) -> str:
+    """根据输出格式返回正确的文件扩展名。"""
+
+    if output_format == "json":
+        return ".json"
+
+    if output_format == "markdown":
+        return ".md"
+
+    raise ValueError(
+        f"不支持的输出格式：{output_format}"
+    )
+
+
+def build_output_text(
+    result: DocumentResult,
+    output_format: str,
+) -> str:
+    """根据用户选择生成 JSON 或 Markdown 文本。"""
+
+    if output_format == "json":
+        return render_json(
+            result
+        )
+
+    if output_format == "markdown":
+        return render_markdown(
+            result
+        )
+
+    raise ValueError(
+        f"不支持的输出格式：{output_format}"
+    )
+
+
 def save_results(
     input_file: Path,
     raw_text: str,
     result: DocumentResult,
     prompt_version: str,
+    output_format: str,
     output_path: Optional[Path],
 ) -> Tuple[Path, Path]:
     """
-    保存模型原始结果和经过校验的 JSON 结果。
+    保存模型原始结果和最终结果。
 
-    默认文件名中包含 Prompt 版本，
-    防止 v1、v2、v3 的结果相互覆盖。
+    模型的原始返回始终保存为 TXT。
+    最终结果可保存为 JSON 或 Markdown。
     """
 
     DEFAULT_OUTPUT_DIR.mkdir(
@@ -217,7 +325,7 @@ def save_results(
         exist_ok=True,
     )
 
-    # 模型原始返回结果始终保存在默认 output 目录
+    # 原始返回固定保存在默认 output 目录。
     raw_output_path = (
         DEFAULT_OUTPUT_DIR
         / (
@@ -226,44 +334,56 @@ def save_results(
         )
     )
 
-    # 未指定 --output 时，使用默认输出路径
+    expected_suffix = get_expected_suffix(
+        output_format
+    )
+
+    # 没有指定 --output 时，自动生成文件名。
     if output_path is None:
-        parsed_output_path = (
+        final_output_path = (
             DEFAULT_OUTPUT_DIR
             / (
                 f"{input_file.stem}_"
-                f"{prompt_version}_parsed.json"
+                f"{prompt_version}"
+                f"{expected_suffix}"
             )
         )
 
     else:
-        parsed_output_path = output_path
+        final_output_path = output_path
 
-        if parsed_output_path.suffix.lower() != ".json":
+        if (
+            final_output_path.suffix.lower()
+            != expected_suffix
+        ):
             raise ValueError(
-                "--output 路径必须以 .json 结尾"
+                f"--format {output_format} 要求 "
+                f"--output 路径以 "
+                f"{expected_suffix} 结尾"
             )
 
-        parsed_output_path.parent.mkdir(
+        # 允许用户指定尚不存在的子目录。
+        final_output_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
+
+    final_text = build_output_text(
+        result=result,
+        output_format=output_format,
+    )
 
     raw_output_path.write_text(
         raw_text,
         encoding="utf-8",
     )
 
-    parsed_output_path.write_text(
-        json.dumps(
-            result.model_dump(),
-            ensure_ascii=False,
-            indent=2,
-        ),
+    final_output_path.write_text(
+        final_text,
         encoding="utf-8",
     )
 
-    return raw_output_path, parsed_output_path
+    return raw_output_path, final_output_path
 
 
 def print_result(
@@ -283,7 +403,9 @@ def print_result(
             result.actions,
             start=1,
         ):
-            print(f"{index}. {action}")
+            print(
+                f"{index}. {action}"
+            )
     else:
         print("无")
 
@@ -294,26 +416,50 @@ def print_result(
             result.questions,
             start=1,
         ):
-            print(f"{index}. {question}")
+            print(
+                f"{index}. {question}"
+            )
     else:
         print("无")
 
 
-def main() -> None:
-    """解析命令行参数并运行文档结构化流程。"""
+def create_argument_parser() -> argparse.ArgumentParser:
+    """创建并配置命令行参数解析器。"""
 
     parser = argparse.ArgumentParser(
         description=(
-            "将中文文档整理为摘要、"
-            "行动项和待确认问题"
-        )
+            "读取中文 TXT 文档，调用 LLM，"
+            "整理为摘要、行动项和待确认问题。"
+        ),
+        epilog=(
+            "使用示例：\n"
+            "\n"
+            "  1. 使用默认设置，输出 JSON：\n"
+            "     python src/document_summarizer.py "
+            "tests/fixtures/short_note.txt\n"
+            "\n"
+            "  2. 选择 v3 Prompt 并输出 Markdown：\n"
+            "     python src/document_summarizer.py "
+            "tests/fixtures/long_report.txt "
+            "--prompt-version v3 "
+            "--format markdown "
+            "--output output/long_report.md\n"
+            "\n"
+            "  3. 指定 JSON 输出文件：\n"
+            "     python src/document_summarizer.py "
+            "tests/fixtures/meeting_actions.txt "
+            "--format json "
+            "--output output/meeting_actions.json"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     parser.add_argument(
         "input_file",
         type=Path,
         help=(
-            "UTF-8 编码的 TXT 文件，"
+            "输入文件路径。\n"
+            "必须是 UTF-8 编码的 TXT 文件，"
             f"最多 {MAX_DOCUMENT_CHARS} 个字符"
         ),
     )
@@ -323,21 +469,44 @@ def main() -> None:
         choices=["v1", "v2", "v3"],
         default="v3",
         help=(
-            "选择提示词版本："
-            "v1、v2 或 v3，默认使用 v3"
+            "选择提示词版本：v1、v2 或 v3。\n"
+            "默认值：v3"
+        ),
+    )
+
+    parser.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["json", "markdown"],
+        default="json",
+        help=(
+            "选择最终结果格式：json 或 markdown。\n"
+            "默认值：json"
         ),
     )
 
     parser.add_argument(
         "--output",
         type=Path,
-        help="可选的 JSON 结果保存路径",
+        help=(
+            "可选的结果保存路径。\n"
+            "JSON 格式必须以 .json 结尾；"
+            "Markdown 格式必须以 .md 结尾。\n"
+            "不填写时，结果自动保存在 output/ 目录"
+        ),
     )
 
+    return parser
+
+
+def main() -> None:
+    """解析命令行参数并运行文档结构化流程。"""
+
+    parser = create_argument_parser()
     args = parser.parse_args()
 
     try:
-        # 第一步：读取并校验输入文件
+        # 第一步：读取并校验输入文件。
         content = read_text_file(
             args.input_file
         )
@@ -352,37 +521,43 @@ def main() -> None:
             f"Prompt 版本：{args.prompt_version}"
         )
         print(
+            f"输出格式：{args.output_format}"
+        )
+        print(
             "正在调用模型，请稍候……"
         )
 
-        # 第二步：调用模型并验证结果
+        # 第二步：调用模型并验证结果。
         raw_text, result = summarize_document(
             document=content,
             prompt_version=args.prompt_version,
         )
 
-        # 第三步：保存原始结果和结构化结果
-        raw_path, parsed_path = save_results(
+        # 第三步：保存原始结果和最终结果。
+        raw_path, final_path = save_results(
             input_file=args.input_file,
             raw_text=raw_text,
             result=result,
             prompt_version=args.prompt_version,
+            output_format=args.output_format,
             output_path=args.output,
         )
 
     except (
         FileNotFoundError,
-        UnicodeDecodeError,
         ValueError,
     ) as error:
-        # 输入、Prompt、JSON 或 Pydantic
-        # 校验错误使用 argparse 的错误格式显示。
+        # 输入、Prompt、JSON、Pydantic
+        # 或输出路径错误。
+        #
+        # parser.error() 会显示清晰的参数错误，
+        # 并以非零退出码 2 结束程序。
         parser.error(
             str(error)
         )
 
     except Exception as error:
-        # API、网络、认证等其他异常
+        # API、网络、认证等其他异常。
         print("\n文档处理失败。")
         print(
             f"错误类型：{type(error).__name__}"
@@ -390,9 +565,11 @@ def main() -> None:
         print(
             f"错误信息：{error}"
         )
+
+        # 使用退出码 1 表示程序运行失败。
         raise SystemExit(1)
 
-    # 第四步：在终端展示结果
+    # 第四步：在终端展示结果。
     print_result(
         result
     )
@@ -401,7 +578,7 @@ def main() -> None:
         f"\n模型原始结果：{raw_path}"
     )
     print(
-        f"结构化结果：{parsed_path}"
+        f"最终结果：{final_path}"
     )
 
 
