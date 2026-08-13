@@ -19,6 +19,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 
+# 当前版本允许输入的最大字符数。
+# 这里按 Python 的 len() 计算字符，不是按 token 计算。
+MAX_DOCUMENT_CHARS = 12000
+
 # Prompt 版本与文件的对应关系
 PROMPT_FILES = {
     "v1": PROMPTS_DIR / "document_summarizer_v1.txt",
@@ -52,6 +56,14 @@ def read_text_file(file_path: Path) -> str:
     if not content:
         raise ValueError(
             "输入文件为空"
+        )
+
+    # 在调用模型前检查长度，避免发送过长文档。
+    if len(content) > MAX_DOCUMENT_CHARS:
+        raise ValueError(
+            f"输入文档过长：当前 {len(content)} 个字符，"
+            f"最多支持 {MAX_DOCUMENT_CHARS} 个字符。"
+            "请缩短文档或拆分后重试"
         )
 
     return content
@@ -300,16 +312,19 @@ def main() -> None:
     parser.add_argument(
         "input_file",
         type=Path,
-        help="UTF-8 编码的 TXT 文件",
+        help=(
+            "UTF-8 编码的 TXT 文件，"
+            f"最多 {MAX_DOCUMENT_CHARS} 个字符"
+        ),
     )
 
     parser.add_argument(
         "--prompt-version",
         choices=["v1", "v2", "v3"],
-        default="v1",
+        default="v3",
         help=(
             "选择提示词版本："
-            "v1、v2 或 v3，默认使用 v1"
+            "v1、v2 或 v3，默认使用 v3"
         ),
     )
 
@@ -322,7 +337,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        # 第一步：读取输入文件
+        # 第一步：读取并校验输入文件
         content = read_text_file(
             args.input_file
         )
