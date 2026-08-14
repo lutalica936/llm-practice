@@ -22,7 +22,7 @@ model = os.getenv("OPENAI_MODEL")
 
 
 # 单次请求最多等待 300 秒。
-REQUEST_TIMEOUT_SECONDS = 300.0
+REQUEST_TIMEOUT_SECONDS = 600.0
 
 # 失败后的最大重试次数。
 # 不包括第一次正常调用。
